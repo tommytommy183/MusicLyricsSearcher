@@ -44,7 +44,11 @@ namespace musicLine
         public Form1()
         {
             InitializeComponent();
-            
+            var iconPath = FindIconInProjectFolder("musicLine", "icon_result.ico");
+            if (!string.IsNullOrEmpty(iconPath))
+            {
+                this.Icon = new Icon(iconPath);
+            }
             // 設定 HttpClient
             httpClient.DefaultRequestHeaders.Add("User-Agent", "MusicLineApp/1.0");
             
@@ -409,5 +413,29 @@ namespace musicLine
                 }
             }
         }
+
+        /// <summary>
+        /// 從啟動目錄往上搜尋，尋找形如 {上層}\{projectFolderName}\{iconFileName} 的檔案，找到回傳完整路徑。
+        /// </summary>
+        private static string? FindIconInProjectFolder(string projectFolderName, string iconFileName)
+        {
+            var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            while (dir != null)
+            {
+                var candidate = Path.Combine(dir.FullName, projectFolderName, iconFileName);
+                if (File.Exists(candidate))
+                    return candidate;
+
+                dir = dir.Parent;
+            }
+
+            return null;
+        }
+
+
+
+
+
+
     }
 }
