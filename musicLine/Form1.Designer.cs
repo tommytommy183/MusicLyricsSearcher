@@ -226,6 +226,7 @@
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.FromArgb(28, 30, 34);
             ClientSize = new Size(500, 350);
+            TopMost = true;
             ContextMenuStrip = contextMenuStrip1;
             Controls.Add(txtArtistSearch);
             Controls.Add(btnBackToSearch);
