@@ -10,6 +10,6 @@ namespace musicLine.Models
     {
         public string Title { get; set; }
         public string Artist { get; set; }
-        public List<string> Lyrics { get; set; }
+        public List<SongLineTime> SongLineTimes { get; set; }
     }
 }
