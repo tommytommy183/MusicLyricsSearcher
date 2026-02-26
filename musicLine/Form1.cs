@@ -1,36 +1,19 @@
 ﻿using System.Net.Http;
 using System.Text.Json;
 using System.Runtime.InteropServices;
+using musicLine.Models;
+using System.Timers;
 
 namespace musicLine
 {
     public partial class Form1 : Form
     {
-        // 歌詞資料結構
-        private class Song
-        {
-            public string Title { get; set; }
-            public string Artist { get; set; }
-            public List<string> Lyrics { get; set; }
-        }
-
-        // LrcLib API 回應結構
-        private class LrcLibResponse
-        {
-            public int id { get; set; }
-            public string name { get; set; }
-            public string trackName { get; set; }
-            public string artistName { get; set; }
-            public string albumName { get; set; }
-            public float duration { get; set; }
-            public bool instrumental { get; set; }
-            public string plainLyrics { get; set; }
-            public string syncedLyrics { get; set; }
-        }
-
         private Song currentSong;
         private int currentLineIndex = 0;
         private static readonly HttpClient httpClient = new HttpClient();
+        private System.Timers.Timer lyricTimer;
+        private DateTime songStartTime;
+        private bool isAutoPlaying = false;
 
         // 用於拖曳視窗的 Windows API
         [DllImport("user32.dll")]
@@ -44,7 +27,11 @@ namespace musicLine
         public Form1()
         {
             InitializeComponent();
-            
+            var iconPath = FindIconInProjectFolder("musicLine", "icon_result.ico");
+            if (!string.IsNullOrEmpty(iconPath))
+            {
+                this.Icon = new Icon(iconPath);
+            }
             // 設定 HttpClient
             httpClient.DefaultRequestHeaders.Add("User-Agent", "MusicLineApp/1.0");
             
@@ -56,6 +43,43 @@ namespace musicLine
 
             this.KeyPreview = true;  // 讓 Form 優先接收鍵盤事件
             this.KeyDown += Form1_KeyDown;  // 註冊鍵盤事件
+
+            // 初始化 Timer
+            lyricTimer = new System.Timers.Timer(100); // 每 100ms 檢查一次
+            lyricTimer.Elapsed += LyricTimer_Elapsed;
+            lyricTimer.AutoReset = true;
+        }
+
+        // Timer 事件處理
+        private void LyricTimer_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            if (!isAutoPlaying || currentSong == null || currentSong.SongLineTimes == null)
+                return;
+
+            // 計算已經播放的時間
+            TimeSpan elapsed = DateTime.Now - songStartTime;
+
+            // 檢查是否需要切換到下一句
+            if (currentLineIndex < currentSong.SongLineTimes.Count - 1)
+            {
+                var nextLine = currentSong.SongLineTimes[currentLineIndex + 1];
+                
+                // 如果有時間資訊且已到達下一句的時間
+                if (nextLine.Time != TimeSpan.Zero && elapsed >= nextLine.Time)
+                {
+                    // 使用 Invoke 在 UI 執行緒上更新
+                    this.Invoke(new Action(() =>
+                    {
+                        currentLineIndex++;
+                        DisplayCurrentLine();
+                    }));
+                }
+            }
+            else
+            {
+                // 已經是最後一句，停止自動播放
+                StopAutoPlay();
+            }
         }
 
         // 創建圓角視窗
@@ -92,6 +116,7 @@ namespace musicLine
         // 右鍵選單 - 關閉
         private void 關閉ToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            StopAutoPlay();
             Application.Exit();
         }
 
@@ -112,6 +137,9 @@ namespace musicLine
 
         private void SwitchToSearchMode()
         {
+            // 停止自動播放
+            StopAutoPlay();
+
             // 顯示搜尋元件
             txtSongSearch.Visible = true;
             txtArtistSearch.Visible = true;
@@ -142,6 +170,40 @@ namespace musicLine
             btnPrevious.Visible = true;
             btnNext.Visible = true;
             btnBackToSearch.Visible = true;
+
+            // 開始自動播放歌詞
+            StartAutoPlay();
+        }
+
+        // 開始自動播放
+        private void StartAutoPlay()
+        {
+            if (currentSong == null || currentSong.SongLineTimes == null || currentSong.SongLineTimes.Count == 0)
+                return;
+
+            // 檢查是否有時間資訊
+            bool hasTimeInfo = currentSong.SongLineTimes.Any(line => line.Time != TimeSpan.Zero);
+            
+            if (hasTimeInfo)
+            {
+                songStartTime = DateTime.Now - currentSong.SongLineTimes[currentLineIndex].Time;
+                isAutoPlaying = true;
+                lyricTimer.Start();
+            }
+        }
+
+        // 停止自動播放
+        private void StopAutoPlay()
+        {
+            isAutoPlaying = false;
+            lyricTimer?.Stop();
+        }
+
+        // 重新開始自動播放（從當前位置）
+        private void RestartAutoPlay()
+        {
+            StopAutoPlay();
+            StartAutoPlay();
         }
 
         private void listBoxResults_DoubleClick(object sender, EventArgs e)
@@ -154,7 +216,7 @@ namespace musicLine
                     var selectedSong = results[listBoxResults.SelectedIndex];
                     
                     // 檢查是否有歌詞
-                    if (selectedSong.Lyrics == null || selectedSong.Lyrics.Count == 0)
+                    if (selectedSong.SongLineTimes == null || selectedSong.SongLineTimes.Count == 0)
                     {
                         MessageBox.Show("這首歌曲沒有可用的歌詞（可能是純音樂）", "提示", 
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -169,35 +231,54 @@ namespace musicLine
 
         private void LoadSong(Song song)
         {
-            if (song == null || song.Lyrics == null || song.Lyrics.Count == 0)
+            if (song == null || song.SongLineTimes == null || song.SongLineTimes.Count == 0)
             {
                 MessageBox.Show("這首歌曲沒有可用的歌詞", "提示", 
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             
-            SwitchToLyricsMode();
+            StopAutoPlay(); // 先停止之前的播放
+            
             currentSong = song;
             currentLineIndex = 0;
 
             lblSongTitle.Text = $"🎵 {song.Title} - {song.Artist}";
+            
+            // 檢查是否有時間資訊
+            bool hasTimeInfo = song.SongLineTimes.Any(line => line.Time != TimeSpan.Zero);
+            if (hasTimeInfo)
+            {
+                lblSongTitle.Text += " ⏱️"; // 加上時鐘圖示表示有自動播放
+            }
+
+            SwitchToLyricsMode();
             DisplayCurrentLine();
 
             btnPrevious.Enabled = false;
-            btnNext.Enabled = song.Lyrics.Count > 1;
+            btnNext.Enabled = song.SongLineTimes.Count > 1;
         }
 
         private void DisplayCurrentLine()
         {
-            if (currentSong == null || currentSong.Lyrics == null || currentSong.Lyrics.Count == 0)
+            if (currentSong == null || currentSong.SongLineTimes == null || currentSong.SongLineTimes.Count == 0)
                 return;
 
-            lblLyricLine.Text = currentSong.Lyrics[currentLineIndex];
-            lblLineNumber.Text = $"{currentLineIndex + 1} / {currentSong.Lyrics.Count}";
+
+            lblLyricLine.Text = currentSong.SongLineTimes[currentLineIndex].Line;
+            
+            // 顯示時間資訊（如果有的話）
+            string timeInfo = "";
+            if (currentSong.SongLineTimes[currentLineIndex].Time != TimeSpan.Zero)
+            {
+                timeInfo = $" [{currentSong.SongLineTimes[currentLineIndex].Time:mm\\:ss}]";
+            }
+            
+            lblLineNumber.Text = $"{currentLineIndex + 1} / {currentSong.SongLineTimes.Count}{timeInfo}";
 
             // 更新按鈕狀態
             btnPrevious.Enabled = currentLineIndex > 0;
-            btnNext.Enabled = currentLineIndex < currentSong.Lyrics.Count - 1;
+            btnNext.Enabled = currentLineIndex < currentSong.SongLineTimes.Count - 1;
         }
 
         // 使用 LrcLib API 搜尋歌詞
@@ -242,29 +323,66 @@ namespace musicLine
                     if (lrcDatas != null && lrcDatas.Count > 0)
                     {
                         List<Song> songs = new List<Song>();
-                        
+
                         foreach (var lrcData in lrcDatas)
                         {
-                            List<string> lyrics = new List<string>();
-                            
-                            // 處理歌詞（優先使用 plainLyrics）
-                            if (!string.IsNullOrWhiteSpace(lrcData.plainLyrics))
+                            List<SongLineTime> songLineTimes = new List<SongLineTime>();
+
+                            if (!string.IsNullOrWhiteSpace(lrcData.syncedLyrics))
                             {
-                                lyrics = lrcData.plainLyrics
-                                    .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-                                    .Where(line => !string.IsNullOrWhiteSpace(line))
-                                    .Select(line => line.Trim())
-                                    .ToList();
+                                List<string> lines = new List<string>();
+                                lines = lrcData.syncedLyrics
+                                                .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+                                                .Where(line => !string.IsNullOrWhiteSpace(line))
+                                                .Select(line => line.Trim())
+                                                .ToList();
+                                // 一句 line 會長這樣 [00:00.25] 夜の始まりさ bunny girl 誘惑される鼓動に
+                                foreach (var line in lines)
+                                {
+                                    try
+                                    {
+                                        SongLineTime songLineTime = new SongLineTime();
+                                        int closeBracketIndex = line.IndexOf("]");
+                                        if (closeBracketIndex > 0)
+                                        {
+                                            songLineTime.Line = line.Substring(closeBracketIndex + 1).Trim();
+                                            string timeStr = line.Substring(1, closeBracketIndex - 1);
+                                            songLineTime.Time = TimeSpan.ParseExact(timeStr, @"mm\:ss\.ff", null);
+                                            songLineTimes.Add(songLineTime);
+                                        }
+                                    }
+                                    catch (FormatException)
+                                    {
+                                        // 如果時間格式錯誤，跳過這一行
+                                        continue;
+                                    }
+                                }
+                            }
+                            else if (!string.IsNullOrWhiteSpace(lrcData.plainLyrics))
+                            {
+                                List<string> lines = new List<string>();
+                                lines = lrcData.plainLyrics
+                                                .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+                                                .Where(line => !string.IsNullOrWhiteSpace(line))
+                                                .Select(line => line.Trim())
+                                                .ToList();
+                                foreach (var line in lines)
+                                {
+                                    SongLineTime songLineTime = new SongLineTime();
+                                    songLineTime.Line = line;
+                                    songLineTime.Time = TimeSpan.Zero; // 沒有時間資訊，設為 0
+                                    songLineTimes.Add(songLineTime);
+                                }
                             }
 
                             // 只加入有歌詞的歌曲（排除純音樂）
-                            if (lyrics.Count > 0 || !lrcData.instrumental)
+                            if (songLineTimes.Count > 0 || !lrcData.instrumental)
                             {
                                 songs.Add(new Song
                                 {
                                     Title = lrcData.trackName ?? "未知歌名",
                                     Artist = lrcData.artistName ?? "未知歌手",
-                                    Lyrics = lyrics
+                                    SongLineTimes = songLineTimes,
                                 });
                             }
                         }
@@ -325,9 +443,13 @@ namespace musicLine
                         foreach (var song in songs)
                         {
                             string display = $"{song.Title} - {song.Artist}";
-                            if (song.Lyrics == null || song.Lyrics.Count == 0)
+                            if (song.SongLineTimes == null || song.SongLineTimes.Count == 0)
                             {
                                 display += " (純音樂)";
+                            }
+                            else if (song.SongLineTimes.Any(line => line.Time != TimeSpan.Zero))
+                            {
+                                display += " ⏱️"; // 有時間資訊的歌曲標記
                             }
                             listBoxResults.Items.Add(display);
                         }
@@ -361,15 +483,21 @@ namespace musicLine
             {
                 currentLineIndex--;
                 DisplayCurrentLine();
+                
+                // 手動切換時重新計算時間
+                RestartAutoPlay();
             }
         }
 
         private void btnNext_Click(object sender, EventArgs e)
         {
-            if (currentSong != null && currentLineIndex < currentSong.Lyrics.Count - 1)
+            if (currentSong != null && currentLineIndex < currentSong.SongLineTimes.Count - 1)
             {
                 currentLineIndex++;
                 DisplayCurrentLine();
+                
+                // 手動切換時重新計算時間
+                RestartAutoPlay();
             }
         }
 
@@ -392,15 +520,29 @@ namespace musicLine
                         {
                             currentLineIndex--;
                             DisplayCurrentLine();
+                            RestartAutoPlay();
                         }
                         break;
                         
                     case Keys.Right:   // → 下一句
-                        if (currentSong != null && currentLineIndex < currentSong.Lyrics.Count - 1)
+                        if (currentSong != null && currentLineIndex < currentSong.SongLineTimes.Count - 1)
                         {
                             currentLineIndex++;
                             DisplayCurrentLine();
+                            RestartAutoPlay();
                         }
+                        break;
+
+                    case Keys.Space:   // 空白鍵 = 暫停/繼續自動播放
+                        if (isAutoPlaying)
+                        {
+                            StopAutoPlay();
+                        }
+                        else
+                        {
+                            StartAutoPlay();
+                        }
+                        e.Handled = true;
                         break;
 
                     case Keys.Escape:  // ESC 回到搜尋
@@ -408,6 +550,24 @@ namespace musicLine
                         break;
                 }
             }
+        }
+
+        /// <summary>
+        /// 從啟動目錄往上搜尋，尋找形如 {上層}\{projectFolderName}\{iconFileName} 的檔案，找到回傳完整路徑。
+        /// </summary>
+        private static string? FindIconInProjectFolder(string projectFolderName, string iconFileName)
+        {
+            var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            while (dir != null)
+            {
+                var candidate = Path.Combine(dir.FullName, projectFolderName, iconFileName);
+                if (File.Exists(candidate))
+                    return candidate;
+
+                dir = dir.Parent;
+            }
+
+            return null;
         }
     }
 }
