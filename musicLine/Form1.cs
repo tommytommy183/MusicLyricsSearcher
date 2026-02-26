@@ -1,33 +1,12 @@
 ﻿using System.Net.Http;
 using System.Text.Json;
 using System.Runtime.InteropServices;
+using musicLine.Models;
 
 namespace musicLine
 {
     public partial class Form1 : Form
     {
-        // 歌詞資料結構
-        private class Song
-        {
-            public string Title { get; set; }
-            public string Artist { get; set; }
-            public List<string> Lyrics { get; set; }
-        }
-
-        // LrcLib API 回應結構
-        private class LrcLibResponse
-        {
-            public int id { get; set; }
-            public string name { get; set; }
-            public string trackName { get; set; }
-            public string artistName { get; set; }
-            public string albumName { get; set; }
-            public float duration { get; set; }
-            public bool instrumental { get; set; }
-            public string plainLyrics { get; set; }
-            public string syncedLyrics { get; set; }
-        }
-
         private Song currentSong;
         private int currentLineIndex = 0;
         private static readonly HttpClient httpClient = new HttpClient();
