@@ -95,7 +95,7 @@ namespace musicLine
                 RestartAutoPlay();
                 this.Invoke(new Action(() =>
                 {
-                    //因為這邊切回去時，還沒到line0的部分所以不會回到第一句，要手動改
+                    //因為這邊切回去時，還沒到line 0的部分所以不會回到第一句，要手動改
                     lblLyricLine.Text = currentSong.SongLineTimes[0].Line;
                 }));
             }
@@ -213,6 +213,7 @@ namespace musicLine
             }
             
             StopAutoPlay(); // 先停止之前的播放
+            //第一句前加上空白，讓畫面好看一點
             song.SongLineTimes.Insert(0,new SongLineTime
             {
                 Line = " ",
