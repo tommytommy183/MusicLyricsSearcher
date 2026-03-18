@@ -13,4 +13,9 @@
     <Content Include="icon_result.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="YoutubeExplode" Version="6.5.7" />
+  </ItemGroup>
+
 </Project>

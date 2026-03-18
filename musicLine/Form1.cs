@@ -1,19 +1,28 @@
-﻿using System.Net.Http;
-using System.Text.Json;
+﻿using musicLine.Models;
+using musicLine.Services;
+using System.Net.Http;
 using System.Runtime.InteropServices;
-using musicLine.Models;
+using System.Security.Policy;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Timers;
 
 namespace musicLine
 {
     public partial class Form1 : Form
     {
-        private Song currentSong;
+        private readonly LyricsService _lyricsService;
+        private readonly YoutubeService _youtubeService;
+        private Song? currentSong;
         private int currentLineIndex = 0;
-        private static readonly HttpClient httpClient = new HttpClient();
         private System.Timers.Timer lyricTimer;
         private DateTime songStartTime;
+        private DateTime? songEndTime = null;
         private bool isAutoPlaying = false;
+        private List<YoutubeModel> _playList = new List<YoutubeModel>();
+        private int currentPlayListIndex = 0;
+        private bool isReplaying = false;
 
         // 用於拖曳視窗的 Windows API
         [DllImport("user32.dll")]
@@ -27,29 +36,36 @@ namespace musicLine
         public Form1()
         {
             InitializeComponent();
+
+            _lyricsService = new LyricsService();
+            _youtubeService = new YoutubeService();
+
+            InitializeUI();
+            InitializeTimer();
+        }
+
+        private void InitializeUI()
+        {
             var iconPath = FindIconInProjectFolder("musicLine", "icon_result.ico");
             if (!string.IsNullOrEmpty(iconPath))
             {
                 this.Icon = new Icon(iconPath);
             }
-            // 設定 HttpClient
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "MusicLineApp/1.0");
-            
-            // 設定圓角
+
             UpdateRoundedCorners();
-            
-            // 視窗大小改變時更新圓角
             this.Resize += (s, e) => UpdateRoundedCorners();
+            this.KeyPreview = true;
+            this.KeyDown += Form1_KeyDown;
+        }
 
-            this.KeyPreview = true;  // 讓 Form 優先接收鍵盤事件
-            this.KeyDown += Form1_KeyDown;  // 註冊鍵盤事件
-
-            // 初始化 Timer
-            lyricTimer = new System.Timers.Timer(100); // 每 100ms 檢查一次
+        private void InitializeTimer()
+        {
+            lyricTimer = new System.Timers.Timer(100);
             lyricTimer.Elapsed += LyricTimer_Elapsed;
             lyricTimer.AutoReset = true;
         }
 
+        #region Timer & Auto Play
         // Timer 事件處理
         private void LyricTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
@@ -57,13 +73,14 @@ namespace musicLine
                 return;
 
             // 計算已經播放的時間
-            TimeSpan elapsed = DateTime.Now - songStartTime;
+            DateTime now = DateTime.Now;
+            TimeSpan elapsed = now - songStartTime;
 
             // 檢查是否需要切換到下一句
             if (currentLineIndex < currentSong.SongLineTimes.Count - 1)
             {
                 var nextLine = currentSong.SongLineTimes[currentLineIndex + 1];
-                
+
                 // 如果有時間資訊且已到達下一句的時間
                 if (nextLine.Time != TimeSpan.Zero && elapsed >= nextLine.Time)
                 {
@@ -75,13 +92,76 @@ namespace musicLine
                     }));
                 }
             }
-            else
+            else if (songEndTime == null)
             {
-                // 已經是最後一句，停止自動播放
-                StopAutoPlay();
+                // 已經是最後一句，計算出結束時間(現在時間 + (整首歌的時間 - 最後一句的時間 := 最後一句到完全結束的時間))
+                songEndTime = now + (currentSong.Duration - currentSong.SongLineTimes[currentLineIndex].Time);
+            }
+            else if (now >= songEndTime)
+            {
+                if (isReplaying)
+                {
+                    currentLineIndex = 0;
+                    RestartAutoPlay();
+                    this.Invoke(new Action(() =>
+                    {
+                        //因為這邊切回去時，還沒到line 0的部分所以不會回到第一句，要手動改
+                        lblLyricLine.Text = currentSong.SongLineTimes[0].Line;
+                    }));
+                }
+                else
+                {
+                    songEndTime = null;
+
+                    this.Invoke(new Action(() =>
+                    {
+                        PlayedPlayList();
+                    }));
+                }
             }
         }
 
+        // 開始自動播放
+        private void StartAutoPlay()
+        {
+            if (currentSong == null || currentSong.SongLineTimes == null || currentSong.SongLineTimes.Count == 0)
+                return;
+
+            // 檢查是否有時間資訊
+            bool hasTimeInfo = _lyricsService.HasTimeInfo(currentSong);
+
+            if (hasTimeInfo)
+            {
+                if (currentLineIndex == 0)
+                {
+                    songStartTime = DateTime.Now;
+                }
+                else
+                {
+                    songStartTime = DateTime.Now - currentSong.SongLineTimes[currentLineIndex].Time;
+                }
+                isAutoPlaying = true;
+                lyricTimer.Start();
+            }
+        }
+
+        // 停止自動播放
+        private void StopAutoPlay()
+        {
+            isAutoPlaying = false;
+            songEndTime = null;
+            lyricTimer?.Stop();
+        }
+
+        // 重新開始自動播放（從當前位置）
+        private void RestartAutoPlay()
+        {
+            StopAutoPlay();
+            StartAutoPlay();
+        }
+        #endregion
+
+        #region UI Methods
         // 創建圓角視窗
         [DllImport("Gdi32.dll", EntryPoint = "CreateRoundRectRgn")]
         private static extern IntPtr CreateRoundRectRgn(
@@ -103,38 +183,6 @@ namespace musicLine
             );
         }
 
-        // 視窗拖曳功能
-        private void Form1_MouseDown(object sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Left)
-            {
-                ReleaseCapture();
-                SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
-            }
-        }
-
-        // 右鍵選單 - 關閉
-        private void 關閉ToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            StopAutoPlay();
-            Application.Exit();
-        }
-
-        // 右鍵選單 - 最小化
-        private void 最小化ToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            this.WindowState = FormWindowState.Minimized;
-        }
-
-        private void txtSearch_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Enter)
-            {
-                btnSearch_Click(sender, e);
-                e.SuppressKeyPress = true;
-            }
-        }
-
         private void SwitchToSearchMode()
         {
             // 停止自動播放
@@ -144,7 +192,9 @@ namespace musicLine
             txtSongSearch.Visible = true;
             txtArtistSearch.Visible = true;
             btnSearch.Visible = true;
-            
+            listBoxResults.Visible = true;
+            txtYoutubeURL.Visible = true;
+
             // 隱藏歌詞元件
             lblSongTitle.Visible = false;
             lblLyricLine.Visible = false;
@@ -152,7 +202,9 @@ namespace musicLine
             btnPrevious.Visible = false;
             btnNext.Visible = false;
             btnBackToSearch.Visible = false;
-            listBoxResults.Visible = true;
+            btnPreviousSong.Visible = false;
+            btnNextSong.Visible = false;
+            btnShowSongList.Visible = false;
         }
 
         private void SwitchToLyricsMode()
@@ -162,7 +214,8 @@ namespace musicLine
             txtArtistSearch.Visible = false;
             btnSearch.Visible = false;
             listBoxResults.Visible = false;
-            
+            txtYoutubeURL.Visible = false;
+
             // 顯示歌詞元件
             lblSongTitle.Visible = true;
             lblLyricLine.Visible = true;
@@ -170,83 +223,36 @@ namespace musicLine
             btnPrevious.Visible = true;
             btnNext.Visible = true;
             btnBackToSearch.Visible = true;
-
+            btnPreviousSong.Visible = true;
+            btnNextSong.Visible = true;
+            btnShowSongList.Visible = true;
             // 開始自動播放歌詞
             StartAutoPlay();
-        }
-
-        // 開始自動播放
-        private void StartAutoPlay()
-        {
-            if (currentSong == null || currentSong.SongLineTimes == null || currentSong.SongLineTimes.Count == 0)
-                return;
-
-            // 檢查是否有時間資訊
-            bool hasTimeInfo = currentSong.SongLineTimes.Any(line => line.Time != TimeSpan.Zero);
-            
-            if (hasTimeInfo)
-            {
-                songStartTime = DateTime.Now - currentSong.SongLineTimes[currentLineIndex].Time;
-                isAutoPlaying = true;
-                lyricTimer.Start();
-            }
-        }
-
-        // 停止自動播放
-        private void StopAutoPlay()
-        {
-            isAutoPlaying = false;
-            lyricTimer?.Stop();
-        }
-
-        // 重新開始自動播放（從當前位置）
-        private void RestartAutoPlay()
-        {
-            StopAutoPlay();
-            StartAutoPlay();
-        }
-
-        private void listBoxResults_DoubleClick(object sender, EventArgs e)
-        {
-            if (listBoxResults.SelectedIndex >= 0)
-            {
-                var results = listBoxResults.Tag as List<Song>;
-                if (results != null && listBoxResults.SelectedIndex < results.Count)
-                {
-                    var selectedSong = results[listBoxResults.SelectedIndex];
-                    
-                    // 檢查是否有歌詞
-                    if (selectedSong.SongLineTimes == null || selectedSong.SongLineTimes.Count == 0)
-                    {
-                        MessageBox.Show("這首歌曲沒有可用的歌詞（可能是純音樂）", "提示", 
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
-                    }
-                    
-                    LoadSong(selectedSong);
-                    listBoxResults.Visible = false;
-                }
-            }
         }
 
         private void LoadSong(Song song)
         {
             if (song == null || song.SongLineTimes == null || song.SongLineTimes.Count == 0)
             {
-                MessageBox.Show("這首歌曲沒有可用的歌詞", "提示", 
+                MessageBox.Show("這首歌曲沒有可用的歌詞", "提示",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            
+
             StopAutoPlay(); // 先停止之前的播放
-            
+            //第一句前加上空白，讓畫面好看一點
+            song.SongLineTimes.Insert(0, new SongLineTime
+            {
+                Line = " ",
+                Time = TimeSpan.FromSeconds(0.1)
+            });
             currentSong = song;
             currentLineIndex = 0;
 
             lblSongTitle.Text = $"🎵 {song.Title} - {song.Artist}";
-            
+
             // 檢查是否有時間資訊
-            bool hasTimeInfo = song.SongLineTimes.Any(line => line.Time != TimeSpan.Zero);
+            bool hasTimeInfo = _lyricsService.HasTimeInfo(song);
             if (hasTimeInfo)
             {
                 lblSongTitle.Text += " ⏱️"; // 加上時鐘圖示表示有自動播放
@@ -266,156 +272,32 @@ namespace musicLine
 
 
             lblLyricLine.Text = currentSong.SongLineTimes[currentLineIndex].Line;
-            
+
             // 顯示時間資訊（如果有的話）
             string timeInfo = "";
             if (currentSong.SongLineTimes[currentLineIndex].Time != TimeSpan.Zero)
             {
                 timeInfo = $" [{currentSong.SongLineTimes[currentLineIndex].Time:mm\\:ss}]";
             }
-            
+
             lblLineNumber.Text = $"{currentLineIndex + 1} / {currentSong.SongLineTimes.Count}{timeInfo}";
 
             // 更新按鈕狀態
             btnPrevious.Enabled = currentLineIndex > 0;
             btnNext.Enabled = currentLineIndex < currentSong.SongLineTimes.Count - 1;
         }
+        #endregion
 
-        // 使用 LrcLib API 搜尋歌詞
-        private async Task<List<Song>> SearchLyricsByLrcLib(string trackName, string artistName)
-        {
-            try
-            {
-                string url;
-
-                // 根據輸入決定搜尋方式
-                if (!string.IsNullOrWhiteSpace(trackName))
-                {
-                    string encodedTrack = Uri.EscapeDataString(trackName);
-                    
-                    if (!string.IsNullOrWhiteSpace(artistName))
-                    {
-                        string encodedArtist = Uri.EscapeDataString(artistName);
-                        url = $"https://lrclib.net/api/search?track_name={encodedTrack}&artist_name={encodedArtist}";
-                    }
-                    else
-                    {
-                        url = $"https://lrclib.net/api/search?track_name={encodedTrack}";
-                    }
-                }
-                else if (!string.IsNullOrWhiteSpace(artistName))
-                {
-                    string encodedArtist = Uri.EscapeDataString(artistName);
-                    url = $"https://lrclib.net/api/search?q={encodedArtist}";
-                }
-                else
-                {
-                    return null;
-                }
-
-                var response = await httpClient.GetAsync(url);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    string jsonResponse = await response.Content.ReadAsStringAsync();
-                    var lrcDatas = JsonSerializer.Deserialize<List<LrcLibResponse>>(jsonResponse);
-
-                    if (lrcDatas != null && lrcDatas.Count > 0)
-                    {
-                        List<Song> songs = new List<Song>();
-
-                        foreach (var lrcData in lrcDatas)
-                        {
-                            List<SongLineTime> songLineTimes = new List<SongLineTime>();
-
-                            if (!string.IsNullOrWhiteSpace(lrcData.syncedLyrics))
-                            {
-                                List<string> lines = new List<string>();
-                                lines = lrcData.syncedLyrics
-                                                .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-                                                .Where(line => !string.IsNullOrWhiteSpace(line))
-                                                .Select(line => line.Trim())
-                                                .ToList();
-                                // 一句 line 會長這樣 [00:00.25] 夜の始まりさ bunny girl 誘惑される鼓動に
-                                foreach (var line in lines)
-                                {
-                                    try
-                                    {
-                                        SongLineTime songLineTime = new SongLineTime();
-                                        int closeBracketIndex = line.IndexOf("]");
-                                        if (closeBracketIndex > 0)
-                                        {
-                                            songLineTime.Line = line.Substring(closeBracketIndex + 1).Trim();
-                                            string timeStr = line.Substring(1, closeBracketIndex - 1);
-                                            songLineTime.Time = TimeSpan.ParseExact(timeStr, @"mm\:ss\.ff", null);
-                                            songLineTimes.Add(songLineTime);
-                                        }
-                                    }
-                                    catch (FormatException)
-                                    {
-                                        // 如果時間格式錯誤，跳過這一行
-                                        continue;
-                                    }
-                                }
-                            }
-                            else if (!string.IsNullOrWhiteSpace(lrcData.plainLyrics))
-                            {
-                                List<string> lines = new List<string>();
-                                lines = lrcData.plainLyrics
-                                                .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-                                                .Where(line => !string.IsNullOrWhiteSpace(line))
-                                                .Select(line => line.Trim())
-                                                .ToList();
-                                foreach (var line in lines)
-                                {
-                                    SongLineTime songLineTime = new SongLineTime();
-                                    songLineTime.Line = line;
-                                    songLineTime.Time = TimeSpan.Zero; // 沒有時間資訊，設為 0
-                                    songLineTimes.Add(songLineTime);
-                                }
-                            }
-
-                            // 只加入有歌詞的歌曲（排除純音樂）
-                            if (songLineTimes.Count > 0 || !lrcData.instrumental)
-                            {
-                                songs.Add(new Song
-                                {
-                                    Title = lrcData.trackName ?? "未知歌名",
-                                    Artist = lrcData.artistName ?? "未知歌手",
-                                    SongLineTimes = songLineTimes,
-                                });
-                            }
-                        }
-                        
-                        return songs.Count > 0 ? songs : null;
-                    }
-                }
-
-                return null;
-            }
-            catch (HttpRequestException ex)
-            {
-                MessageBox.Show($"網路連線錯誤：{ex.Message}", "錯誤", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return null;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"搜尋歌詞時發生錯誤：{ex.Message}", "錯誤", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return null;
-            }
-        }
-
-        #region 按鈕事件
+        #region Event Handlers
         private async void btnSearch_Click(object sender, EventArgs e)
         {
             string songName = txtSongSearch.Text.Trim();
             string artistName = txtArtistSearch.Text.Trim();
+            string youtubeUrl = txtYoutubeURL.Text.Trim();
 
-            if (string.IsNullOrEmpty(songName) && string.IsNullOrEmpty(artistName))
+            if (string.IsNullOrEmpty(songName) && string.IsNullOrEmpty(artistName) && string.IsNullOrEmpty(youtubeUrl))
             {
-                MessageBox.Show("請至少輸入歌名或歌手名稱！", "提示", 
+                MessageBox.Show("請至少輸入歌名或歌手名稱，或是輸入歌單網址！", "提示",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -427,48 +309,40 @@ namespace musicLine
 
             try
             {
-                var songs = await SearchLyricsByLrcLib(songName, artistName);
-
-                if (songs != null && songs.Count > 0)
+                //如果沒有輸入 YouTube URL，則進行歌詞搜尋；如果有輸入，則嘗試從 YouTube 取得資料
+                if (string.IsNullOrEmpty(youtubeUrl))
                 {
-                    if (songs.Count == 1)
+                    var songs = await _lyricsService.SearchSongsAsync(songName, artistName);
+
+                    if (songs != null && songs.Count > 0)
                     {
-                        // 只有一個結果，直接載入
-                        LoadSong(songs[0]);
+                        isReplaying = true;
+                        if (songs.Count == 1)
+                        {
+                            // 只有一個結果，直接載入
+                            LoadSong(songs[0]);
+                        }
+                        else
+                        {
+                            // 多個結果，顯示列表
+                            DisplaySearchResults(songs);
+                        }
                     }
                     else
                     {
-                        // 多個結果，顯示列表
-                        listBoxResults.Items.Clear();
-                        foreach (var song in songs)
-                        {
-                            string display = $"{song.Title} - {song.Artist}";
-                            if (song.SongLineTimes == null || song.SongLineTimes.Count == 0)
-                            {
-                                display += " (純音樂)";
-                            }
-                            else if (song.SongLineTimes.Any(line => line.Time != TimeSpan.Zero))
-                            {
-                                display += " ⏱️"; // 有時間資訊的歌曲標記
-                            }
-                            listBoxResults.Items.Add(display);
-                        }
-                        listBoxResults.Tag = songs;
-                        listBoxResults.Visible = true;
+                        ShowNoResultsMessage();
                     }
                 }
                 else
                 {
-                    MessageBox.Show(
-                        "找不到相關歌詞！\n\n" +
-                        "提示：\n" +
-                        "• 可以只輸入歌名或歌手名稱\n" +
-                        "• 日文歌範例：「Lemon」、「米津玄師」\n" +
-                        "• 中文歌範例：「晴天」、「周杰倫」",
-                        "搜尋結果",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information);
+                    _playList = await _youtubeService.GetYoutubePlayListData(youtubeUrl);
+                    await PlayedPlayList();
                 }
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -477,14 +351,84 @@ namespace musicLine
             }
         }
 
+        private void DisplaySearchResults(List<Song> songs)
+        {
+            listBoxResults.Items.Clear();
+            foreach (var song in songs)
+            {
+                string display = $"{song.Title} - {song.Artist}";
+                if (song.SongLineTimes == null || song.SongLineTimes.Count == 0)
+                {
+                    display += " (純音樂)";
+                }
+                else if (_lyricsService.HasTimeInfo(song))
+                {
+                    display += " ⏱️";
+                }
+                listBoxResults.Items.Add(display);
+            }
+            listBoxResults.Tag = songs;
+            listBoxResults.Visible = true;
+        }
+
+        private void ShowNoResultsMessage()
+        {
+            MessageBox.Show(
+                "找不到相關歌詞！\n\n" +
+                "提示：\n" +
+                "• 可以只輸入歌名或歌手名稱\n" +
+                "• 日文歌範例：「Lemon」、「米津玄師」\n" +
+                "• 中文歌範例：「晴天」、「周杰倫」",
+                "搜尋結果",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+
+        private void listBoxResults_DoubleClick(object sender, EventArgs e)
+        {
+            if (listBoxResults.SelectedIndex >= 0)
+            {
+                var results = listBoxResults.Tag as List<Song>;
+                if (results != null && listBoxResults.SelectedIndex < results.Count)
+                {
+                    var selectedSong = results[listBoxResults.SelectedIndex];
+
+                    // 檢查是否有歌詞
+                    if (selectedSong.SongLineTimes == null || selectedSong.SongLineTimes.Count == 0)
+                    {
+                        MessageBox.Show("這首歌曲沒有可用的歌詞（可能是純音樂）", "提示",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+
+                    LoadSong(selectedSong);
+                    listBoxResults.Visible = false;
+                }
+            }
+        }
+
+
+        private void btnPreviousSong_Click(object sender, EventArgs e)
+        {
+            currentPlayListIndex = Math.Max(0, currentPlayListIndex - 2);
+            PlayedPlayList();
+        }
+
+        private void btnNextSong_Click(object sender, EventArgs e)
+        {
+            PlayedPlayList();
+        }
+
+        private void btnShowSongList_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show(string.Join("\n", _playList.Select((s, i) => $"{i + 1}. {s.SongName} - {s.ChannnelName}")), "播放列表");
+        }
         private void btnPrevious_Click(object sender, EventArgs e)
         {
             if (currentSong != null && currentLineIndex > 0)
             {
                 currentLineIndex--;
                 DisplayCurrentLine();
-                
-                // 手動切換時重新計算時間
                 RestartAutoPlay();
             }
         }
@@ -495,8 +439,6 @@ namespace musicLine
             {
                 currentLineIndex++;
                 DisplayCurrentLine();
-                
-                // 手動切換時重新計算時間
                 RestartAutoPlay();
             }
         }
@@ -507,7 +449,35 @@ namespace musicLine
             currentSong = null;
             currentLineIndex = 0;
         }
-        #endregion
+
+        private void Form1_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                ReleaseCapture();
+                SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
+            }
+        }
+
+        private void 關閉ToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            StopAutoPlay();
+            Application.Exit();
+        }
+
+        private void 最小化ToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            this.WindowState = FormWindowState.Minimized;
+        }
+
+        private void txtSearch_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                btnSearch_Click(sender, e);
+                e.SuppressKeyPress = true;
+            }
+        }
 
         private void Form1_KeyDown(object sender, KeyEventArgs e)
         {
@@ -515,7 +485,7 @@ namespace musicLine
             {
                 switch (e.KeyCode)
                 {
-                    case Keys.Left:    // ← 前一句
+                    case Keys.Left:
                         if (currentLineIndex > 0)
                         {
                             currentLineIndex--;
@@ -523,8 +493,8 @@ namespace musicLine
                             RestartAutoPlay();
                         }
                         break;
-                        
-                    case Keys.Right:   // → 下一句
+
+                    case Keys.Right:
                         if (currentSong != null && currentLineIndex < currentSong.SongLineTimes.Count - 1)
                         {
                             currentLineIndex++;
@@ -533,7 +503,7 @@ namespace musicLine
                         }
                         break;
 
-                    case Keys.Space:   // 空白鍵 = 暫停/繼續自動播放
+                    case Keys.Space:
                         if (isAutoPlaying)
                         {
                             StopAutoPlay();
@@ -545,9 +515,47 @@ namespace musicLine
                         e.Handled = true;
                         break;
 
-                    case Keys.Escape:  // ESC 回到搜尋
+                    case Keys.Escape:
                         btnBackToSearch_Click(sender, e);
                         break;
+                }
+            }
+        }
+        #endregion
+
+        private async Task PlayedPlayList()
+        {
+            isReplaying = false;
+            if (_playList != null && _playList.Count > 0)
+            {
+                YoutubeModel current = _playList[currentPlayListIndex];
+                var songs = await _lyricsService.SearchSongsAsync(current.SongName, GetSingerFirstFilter(current.ChannnelName));
+
+                currentPlayListIndex++;
+
+                if (songs != null && songs.Count > 0)
+                {
+                    LoadSong(songs[0]);
+                }
+                else
+                {
+                    songs = await _lyricsService.SearchSongsAsync(current.SongName, GetSingerSecondFilter(current.ChannnelName));
+                    if (songs != null && songs.Count > 0)
+                    {
+                        LoadSong(songs[0]);
+                    }
+                    else
+                    {
+                        songs = await _lyricsService.SearchSongsAsync(current.SongName, "");
+                        if (songs != null && songs.Count > 0)
+                        {
+                            LoadSong(songs[0]);
+                        }
+                        else
+                        {
+                            await PlayedPlayList();
+                        }
+                    }
                 }
             }
         }
@@ -568,6 +576,53 @@ namespace musicLine
             }
 
             return null;
+        }
+        private string GetSingerFirstFilter(string artist)
+        {
+            var channelMapping = new Dictionary<string, string>
+            {
+                { "yoasobi", "YOASOBI" },
+                { "kenshi yonezu", "米津玄師" },
+                { "優里","yuuri"},
+                { "ZUTOMAYO","zutomayo"},
+                { "backnumber","back number"}
+            };
+
+
+            foreach (var kv in channelMapping)
+            {
+                if (artist.ToLower().Contains(kv.Key))
+                {
+                    artist = kv.Value;
+                    break;
+                }
+            }
+
+            return artist;
+        }
+
+        private string GetSingerSecondFilter(string artist)
+        {
+            var channelMapping = new Dictionary<string, string>
+            {
+                { "yoasobi", "yoasobi" },
+                { "kenshi yonezu", "kenshi yonezu" },
+                { "優里","優里"},
+                { "ZUTOMAYO","ずっと真夜中でいいのに"},
+                { "back number","back number"}
+            };
+
+
+            foreach (var kv in channelMapping)
+            {
+                if (artist.ToLower().Contains(kv.Key))
+                {
+                    artist = kv.Value;
+                    break;
+                }
+            }
+
+            return artist;
         }
     }
 }
