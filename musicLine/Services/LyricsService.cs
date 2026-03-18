@@ -32,8 +32,8 @@ namespace musicLine.Services
                 {
                     var songLineTimes = ParseLyrics(lrcData);
 
-                    // 只加入有歌詞的歌曲（排除純音樂）
-                    if (songLineTimes.Count > 0 || !lrcData.instrumental)
+                    // 只加入有歌詞 & 有同步歌詞的歌曲（排除純音樂）
+                    if (songLineTimes != null && (songLineTimes.Count > 0 || !lrcData.instrumental))
                     {
                         songs.Add(new Song
                         {
@@ -58,7 +58,7 @@ namespace musicLine.Services
         }
 
         /// <summary>
-        /// 解析歌詞資料（支援同步歌詞和純文字歌詞）
+        /// 解析歌詞資料（支援同步歌詞）
         /// </summary>
         private List<SongLineTime> ParseLyrics(LrcLibResponse lrcData)
         {
@@ -68,14 +68,17 @@ namespace musicLine.Services
             if (!string.IsNullOrWhiteSpace(lrcData.syncedLyrics))
             {
                 songLineTimes = ParseSyncedLyrics(lrcData.syncedLyrics);
+                return songLineTimes;
             }
-            // 其次處理純文字歌詞
-            else if (!string.IsNullOrWhiteSpace(lrcData.plainLyrics))
+            else
             {
-                songLineTimes = ParsePlainLyrics(lrcData.plainLyrics);
+                return null;
             }
-
-            return songLineTimes;
+            //// 其次處理純文字歌詞
+            //else if (!string.IsNullOrWhiteSpace(lrcData.plainLyrics))
+            //{
+            //    songLineTimes = ParsePlainLyrics(lrcData.plainLyrics);
+            //}
         }
 
         /// <summary>
@@ -84,7 +87,7 @@ namespace musicLine.Services
         private List<SongLineTime> ParseSyncedLyrics(string syncedLyrics)
         {
             List<SongLineTime> result = new List<SongLineTime>();
-            
+
             var lines = syncedLyrics
                 .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
                 .Where(line => !string.IsNullOrWhiteSpace(line))
@@ -101,7 +104,7 @@ namespace musicLine.Services
                         string lyricText = line.Substring(closeBracketIndex + 1).Trim();
                         string timeStr = line.Substring(1, closeBracketIndex - 1);
                         TimeSpan time = TimeSpan.ParseExact(timeStr, @"mm\:ss\.ff", null);
-                        
+
                         result.Add(new SongLineTime
                         {
                             Line = lyricText,
@@ -125,7 +128,7 @@ namespace musicLine.Services
         private List<SongLineTime> ParsePlainLyrics(string plainLyrics)
         {
             List<SongLineTime> result = new List<SongLineTime>();
-            
+
             var lines = plainLyrics
                 .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
                 .Where(line => !string.IsNullOrWhiteSpace(line))

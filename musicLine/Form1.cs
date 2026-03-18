@@ -10,6 +10,7 @@ namespace musicLine
     public partial class Form1 : Form
     {
         private readonly LyricsService _lyricsService;
+        private readonly YoutubeService _youtubeService;
         private Song? currentSong;
         private int currentLineIndex = 0;
         private System.Timers.Timer lyricTimer;
@@ -29,9 +30,10 @@ namespace musicLine
         public Form1()
         {
             InitializeComponent();
-            
+
             _lyricsService = new LyricsService();
-            
+            _youtubeService = new YoutubeService();
+
             InitializeUI();
             InitializeTimer();
         }
@@ -43,7 +45,7 @@ namespace musicLine
             {
                 this.Icon = new Icon(iconPath);
             }
-            
+
             UpdateRoundedCorners();
             this.Resize += (s, e) => UpdateRoundedCorners();
             this.KeyPreview = true;
@@ -72,7 +74,7 @@ namespace musicLine
             if (currentLineIndex < currentSong.SongLineTimes.Count - 1)
             {
                 var nextLine = currentSong.SongLineTimes[currentLineIndex + 1];
-                
+
                 // 如果有時間資訊且已到達下一句的時間
                 if (nextLine.Time != TimeSpan.Zero && elapsed >= nextLine.Time)
                 {
@@ -109,7 +111,7 @@ namespace musicLine
 
             // 檢查是否有時間資訊
             bool hasTimeInfo = _lyricsService.HasTimeInfo(currentSong);
-            
+
             if (hasTimeInfo)
             {
                 if (currentLineIndex == 0)
@@ -173,7 +175,8 @@ namespace musicLine
             txtArtistSearch.Visible = true;
             btnSearch.Visible = true;
             listBoxResults.Visible = true;
-            
+            txtYoutubeURL.Visible = true;
+
             // 隱藏歌詞元件
             lblSongTitle.Visible = false;
             lblLyricLine.Visible = false;
@@ -181,6 +184,8 @@ namespace musicLine
             btnPrevious.Visible = false;
             btnNext.Visible = false;
             btnBackToSearch.Visible = false;
+            btnPreviousSong.Visible = false;
+            btnNextSong.Visible = false;
         }
 
         private void SwitchToLyricsMode()
@@ -190,7 +195,8 @@ namespace musicLine
             txtArtistSearch.Visible = false;
             btnSearch.Visible = false;
             listBoxResults.Visible = false;
-            
+            txtYoutubeURL.Visible = false;
+
             // 顯示歌詞元件
             lblSongTitle.Visible = true;
             lblLyricLine.Visible = true;
@@ -198,7 +204,8 @@ namespace musicLine
             btnPrevious.Visible = true;
             btnNext.Visible = true;
             btnBackToSearch.Visible = true;
-
+            btnPreviousSong.Visible = true;
+            btnNextSong.Visible = true;
             // 開始自動播放歌詞
             StartAutoPlay();
         }
@@ -207,14 +214,14 @@ namespace musicLine
         {
             if (song == null || song.SongLineTimes == null || song.SongLineTimes.Count == 0)
             {
-                MessageBox.Show("這首歌曲沒有可用的歌詞", "提示", 
+                MessageBox.Show("這首歌曲沒有可用的歌詞", "提示",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            
+
             StopAutoPlay(); // 先停止之前的播放
             //第一句前加上空白，讓畫面好看一點
-            song.SongLineTimes.Insert(0,new SongLineTime
+            song.SongLineTimes.Insert(0, new SongLineTime
             {
                 Line = " ",
                 Time = TimeSpan.FromSeconds(0.1)
@@ -223,7 +230,7 @@ namespace musicLine
             currentLineIndex = 0;
 
             lblSongTitle.Text = $"🎵 {song.Title} - {song.Artist}";
-            
+
             // 檢查是否有時間資訊
             bool hasTimeInfo = _lyricsService.HasTimeInfo(song);
             if (hasTimeInfo)
@@ -245,14 +252,14 @@ namespace musicLine
 
 
             lblLyricLine.Text = currentSong.SongLineTimes[currentLineIndex].Line;
-            
+
             // 顯示時間資訊（如果有的話）
             string timeInfo = "";
             if (currentSong.SongLineTimes[currentLineIndex].Time != TimeSpan.Zero)
             {
                 timeInfo = $" [{currentSong.SongLineTimes[currentLineIndex].Time:mm\\:ss}]";
             }
-            
+
             lblLineNumber.Text = $"{currentLineIndex + 1} / {currentSong.SongLineTimes.Count}{timeInfo}";
 
             // 更新按鈕狀態
@@ -266,10 +273,11 @@ namespace musicLine
         {
             string songName = txtSongSearch.Text.Trim();
             string artistName = txtArtistSearch.Text.Trim();
+            string youtubeUrl = txtYoutubeURL.Text.Trim();
 
-            if (string.IsNullOrEmpty(songName) && string.IsNullOrEmpty(artistName))
+            if (string.IsNullOrEmpty(songName) && string.IsNullOrEmpty(artistName) && string.IsNullOrEmpty(youtubeUrl))
             {
-                MessageBox.Show("請至少輸入歌名或歌手名稱！", "提示", 
+                MessageBox.Show("請至少輸入歌名或歌手名稱，或是輸入歌單網址！", "提示",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -281,25 +289,38 @@ namespace musicLine
 
             try
             {
-                var songs = await _lyricsService.SearchSongsAsync(songName, artistName);
-
-                if (songs != null && songs.Count > 0)
+                //如果沒有輸入 YouTube URL，則進行歌詞搜尋；如果有輸入，則嘗試從 YouTube 取得資料
+                if (string.IsNullOrEmpty(youtubeUrl))
                 {
-                    if (songs.Count == 1)
+                    var songs = await _lyricsService.SearchSongsAsync(songName, artistName);
+
+                    if (songs != null && songs.Count > 0)
                     {
-                        // 只有一個結果，直接載入
-                        LoadSong(songs[0]);
+                        if (songs.Count == 1)
+                        {
+                            // 只有一個結果，直接載入
+                            LoadSong(songs[0]);
+                        }
+                        else
+                        {
+                            // 多個結果，顯示列表
+                            DisplaySearchResults(songs);
+                        }
                     }
                     else
                     {
-                        // 多個結果，顯示列表
-                        DisplaySearchResults(songs);
+                        ShowNoResultsMessage();
                     }
                 }
                 else
                 {
-                    ShowNoResultsMessage();
+                    var youtubeData = await _youtubeService.GetYoutubePlayListData(youtubeUrl);
+                    if(youtubeData != null)
+                    {
+
+                    }
                 }
+                
             }
             catch (Exception ex)
             {
@@ -353,15 +374,15 @@ namespace musicLine
                 if (results != null && listBoxResults.SelectedIndex < results.Count)
                 {
                     var selectedSong = results[listBoxResults.SelectedIndex];
-                    
+
                     // 檢查是否有歌詞
                     if (selectedSong.SongLineTimes == null || selectedSong.SongLineTimes.Count == 0)
                     {
-                        MessageBox.Show("這首歌曲沒有可用的歌詞（可能是純音樂）", "提示", 
+                        MessageBox.Show("這首歌曲沒有可用的歌詞（可能是純音樂）", "提示",
                             MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
-                    
+
                     LoadSong(selectedSong);
                     listBoxResults.Visible = false;
                 }
@@ -438,7 +459,7 @@ namespace musicLine
                             RestartAutoPlay();
                         }
                         break;
-                        
+
                     case Keys.Right:
                         if (currentSong != null && currentLineIndex < currentSong.SongLineTimes.Count - 1)
                         {

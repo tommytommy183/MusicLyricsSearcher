@@ -43,6 +43,9 @@
             contextMenuStrip1 = new ContextMenuStrip(components);
             SmallestToolStripMenuItem = new ToolStripMenuItem();
             ClosedToolStripMenuItem = new ToolStripMenuItem();
+            txtYoutubeURL = new TextBox();
+            btnPreviousSong = new Button();
+            btnNextSong = new Button();
             contextMenuStrip1.SuspendLayout();
             SuspendLayout();
             // 
@@ -69,9 +72,9 @@
             listBoxResults.ForeColor = gray;
             listBoxResults.FormattingEnabled = true;
             listBoxResults.ItemHeight = 23;
-            listBoxResults.Location = new Point(30, 130);
+            listBoxResults.Location = new Point(30, 176);
             listBoxResults.Name = "listBoxResults";
-            listBoxResults.Size = new Size(458, 186);
+            listBoxResults.Size = new Size(458, 140);
             listBoxResults.TabIndex = 1;
             listBoxResults.Visible = false;
             listBoxResults.DoubleClick += listBoxResults_DoubleClick;
@@ -81,7 +84,7 @@
             lblSongTitle.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             lblSongTitle.Font = new Font("Microsoft JhengHei UI", 16F, FontStyle.Bold);
             lblSongTitle.ForeColor = Color.FromArgb(255, 75, 87, 146);
-            lblSongTitle.Location = new Point(30, 30);
+            lblSongTitle.Location = new Point(30, 65);
             lblSongTitle.Name = "lblSongTitle";
             lblSongTitle.Size = new Size(458, 40);
             lblSongTitle.TabIndex = 2;
@@ -128,10 +131,10 @@
             lblLyricLine.BorderStyle = BorderStyle.FixedSingle;
             lblLyricLine.Font = new Font("Microsoft JhengHei UI", 18F, FontStyle.Regular, GraphicsUnit.Point, 136);
             lblLyricLine.ForeColor = Color.FromArgb(51, 51, 51);
-            lblLyricLine.Location = new Point(30, 84);
+            lblLyricLine.Location = new Point(30, 109);
             lblLyricLine.Name = "lblLyricLine";
             lblLyricLine.Padding = new Padding(20);
-            lblLyricLine.Size = new Size(458, 174);
+            lblLyricLine.Size = new Size(458, 149);
             lblLyricLine.TabIndex = 5;
             lblLyricLine.Text = "歌詞內容會顯示在這裡";
             lblLyricLine.TextAlign = ContentAlignment.MiddleCenter;
@@ -158,7 +161,7 @@
             btnSearch.FlatStyle = FlatStyle.Flat;
             btnSearch.Font = new Font("Microsoft JhengHei UI", 11F, FontStyle.Bold);
             btnSearch.ForeColor = Color.White;
-            btnSearch.Location = new Point(198, 84);
+            btnSearch.Location = new Point(198, 118);
             btnSearch.Name = "btnSearch";
             btnSearch.Size = new Size(120, 38);
             btnSearch.TabIndex = 7;
@@ -220,14 +223,58 @@
             ClosedToolStripMenuItem.Text = "❌ 關閉";
             ClosedToolStripMenuItem.Click += 關閉ToolStripMenuItem_Click;
             // 
+            // txtYoutubeURL
+            // 
+            txtYoutubeURL.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            txtYoutubeURL.BackColor = Color.FromArgb(74, 74, 80);
+            txtYoutubeURL.Font = new Font("Microsoft JhengHei UI", 12F);
+            txtYoutubeURL.Location = new Point(30, 73);
+            txtYoutubeURL.Name = "txtYoutubeURL";
+            txtYoutubeURL.PlaceholderText = "🎤 請輸入歌單網址";
+            txtYoutubeURL.Size = new Size(458, 33);
+            txtYoutubeURL.TabIndex = 10;
+            // 
+            // btnPreviousSong
+            // 
+            btnPreviousSong.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnPreviousSong.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
+            btnPreviousSong.BackColor = gray;
+            btnPreviousSong.FlatStyle = FlatStyle.Flat;
+            btnPreviousSong.Font = new Font("Microsoft JhengHei UI", 11F);
+            btnPreviousSong.Location = new Point(30, 22);
+            btnPreviousSong.Name = "btnPreviousSong";
+            btnPreviousSong.Size = new Size(120, 45);
+            btnPreviousSong.TabIndex = 11;
+            btnPreviousSong.Text = "◀ 前一首";
+            btnPreviousSong.UseVisualStyleBackColor = false;
+            btnPreviousSong.Visible = false;
+
+            // 
+            // btnNextSong
+            // 
+            btnNextSong.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnNextSong.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
+            btnNextSong.BackColor = gray;
+            btnNextSong.FlatStyle = FlatStyle.Flat;
+            btnNextSong.Font = new Font("Microsoft JhengHei UI", 11F);
+            btnNextSong.Location = new Point(368, 23);
+            btnNextSong.Name = "btnNextSong";
+            btnNextSong.Size = new Size(120, 45);
+            btnNextSong.TabIndex = 12;
+            btnNextSong.Text = "下一首 ▶";
+            btnNextSong.UseVisualStyleBackColor = false;
+            btnNextSong.Visible = false;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(9F, 19F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.FromArgb(28, 30, 34);
             ClientSize = new Size(500, 350);
-            TopMost = true;
             ContextMenuStrip = contextMenuStrip1;
+            Controls.Add(btnNextSong);
+            Controls.Add(btnPreviousSong);
+            Controls.Add(txtYoutubeURL);
             Controls.Add(txtArtistSearch);
             Controls.Add(btnBackToSearch);
             Controls.Add(btnSearch);
@@ -245,6 +292,7 @@
             Opacity = 0.95D;
             StartPosition = FormStartPosition.CenterScreen;
             Text = "🎵 歌詞查詢器";
+            TopMost = true;
             MouseDown += Form1_MouseDown;
             contextMenuStrip1.ResumeLayout(false);
             ResumeLayout(false);
@@ -266,5 +314,8 @@
         private ContextMenuStrip contextMenuStrip1;
         private ToolStripMenuItem ClosedToolStripMenuItem;
         private ToolStripMenuItem SmallestToolStripMenuItem;
+        private TextBox txtYoutubeURL;
+        private Button btnPreviousSong;
+        private Button btnNextSong;
     }
 }
