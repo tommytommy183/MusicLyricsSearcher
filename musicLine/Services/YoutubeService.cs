@@ -33,8 +33,6 @@ namespace musicLine.Services
 
                     youtubeModels.Add(youtubeModel);
                 }
-                Console.WriteLine($"Title: {video.Title}");
-                Console.WriteLine($"Author: {video.Author.ChannelTitle}");
             }
 
             return youtubeModels;

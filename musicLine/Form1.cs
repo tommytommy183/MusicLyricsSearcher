@@ -1,9 +1,12 @@
-﻿using System.Net.Http;
-using System.Text.Json;
-using System.Runtime.InteropServices;
-using System.Timers;
-using musicLine.Models;
+﻿using musicLine.Models;
 using musicLine.Services;
+using System.Net.Http;
+using System.Runtime.InteropServices;
+using System.Security.Policy;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Timers;
 
 namespace musicLine
 {
@@ -17,6 +20,9 @@ namespace musicLine
         private DateTime songStartTime;
         private DateTime? songEndTime = null;
         private bool isAutoPlaying = false;
+        private List<YoutubeModel> _playList = new List<YoutubeModel>();
+        private int currentPlayListIndex = 0;
+        private bool isReplaying = false;
 
         // 用於拖曳視窗的 Windows API
         [DllImport("user32.dll")]
@@ -93,13 +99,25 @@ namespace musicLine
             }
             else if (now >= songEndTime)
             {
-                currentLineIndex = 0;
-                RestartAutoPlay();
-                this.Invoke(new Action(() =>
+                if (isReplaying)
                 {
-                    //因為這邊切回去時，還沒到line 0的部分所以不會回到第一句，要手動改
-                    lblLyricLine.Text = currentSong.SongLineTimes[0].Line;
-                }));
+                    currentLineIndex = 0;
+                    RestartAutoPlay();
+                    this.Invoke(new Action(() =>
+                    {
+                        //因為這邊切回去時，還沒到line 0的部分所以不會回到第一句，要手動改
+                        lblLyricLine.Text = currentSong.SongLineTimes[0].Line;
+                    }));
+                }
+                else
+                {
+                    songEndTime = null;
+
+                    this.Invoke(new Action(() =>
+                    {
+                        PlayedPlayList();
+                    }));
+                }
             }
         }
 
@@ -186,6 +204,7 @@ namespace musicLine
             btnBackToSearch.Visible = false;
             btnPreviousSong.Visible = false;
             btnNextSong.Visible = false;
+            btnShowSongList.Visible = false;
         }
 
         private void SwitchToLyricsMode()
@@ -206,6 +225,7 @@ namespace musicLine
             btnBackToSearch.Visible = true;
             btnPreviousSong.Visible = true;
             btnNextSong.Visible = true;
+            btnShowSongList.Visible = true;
             // 開始自動播放歌詞
             StartAutoPlay();
         }
@@ -296,6 +316,7 @@ namespace musicLine
 
                     if (songs != null && songs.Count > 0)
                     {
+                        isReplaying = true;
                         if (songs.Count == 1)
                         {
                             // 只有一個結果，直接載入
@@ -314,13 +335,10 @@ namespace musicLine
                 }
                 else
                 {
-                    var youtubeData = await _youtubeService.GetYoutubePlayListData(youtubeUrl);
-                    if(youtubeData != null)
-                    {
-
-                    }
+                    _playList = await _youtubeService.GetYoutubePlayListData(youtubeUrl);
+                    await PlayedPlayList();
                 }
-                
+
             }
             catch (Exception ex)
             {
@@ -389,6 +407,22 @@ namespace musicLine
             }
         }
 
+
+        private void btnPreviousSong_Click(object sender, EventArgs e)
+        {
+            currentPlayListIndex = Math.Max(0, currentPlayListIndex - 2);
+            PlayedPlayList();
+        }
+
+        private void btnNextSong_Click(object sender, EventArgs e)
+        {
+            PlayedPlayList();
+        }
+
+        private void btnShowSongList_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show(string.Join("\n", _playList.Select((s, i) => $"{i + 1}. {s.SongName} - {s.ChannnelName}")), "播放列表");
+        }
         private void btnPrevious_Click(object sender, EventArgs e)
         {
             if (currentSong != null && currentLineIndex > 0)
@@ -489,6 +523,43 @@ namespace musicLine
         }
         #endregion
 
+        private async Task PlayedPlayList()
+        {
+            isReplaying = false;
+            if (_playList != null && _playList.Count > 0)
+            {
+                YoutubeModel current = _playList[currentPlayListIndex];
+                var songs = await _lyricsService.SearchSongsAsync(current.SongName, GetSingerFirstFilter(current.ChannnelName));
+
+                currentPlayListIndex++;
+
+                if (songs != null && songs.Count > 0)
+                {
+                    LoadSong(songs[0]);
+                }
+                else
+                {
+                    songs = await _lyricsService.SearchSongsAsync(current.SongName, GetSingerSecondFilter(current.ChannnelName));
+                    if (songs != null && songs.Count > 0)
+                    {
+                        LoadSong(songs[0]);
+                    }
+                    else
+                    {
+                        songs = await _lyricsService.SearchSongsAsync(current.SongName, "");
+                        if (songs != null && songs.Count > 0)
+                        {
+                            LoadSong(songs[0]);
+                        }
+                        else
+                        {
+                            await PlayedPlayList();
+                        }
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// 從啟動目錄往上搜尋，尋找形如 {上層}\{projectFolderName}\{iconFileName} 的檔案，找到回傳完整路徑。
         /// </summary>
@@ -505,6 +576,53 @@ namespace musicLine
             }
 
             return null;
+        }
+        private string GetSingerFirstFilter(string artist)
+        {
+            var channelMapping = new Dictionary<string, string>
+            {
+                { "yoasobi", "YOASOBI" },
+                { "kenshi yonezu", "米津玄師" },
+                { "優里","yuuri"},
+                { "ZUTOMAYO","zutomayo"},
+                { "backnumber","back number"}
+            };
+
+
+            foreach (var kv in channelMapping)
+            {
+                if (artist.ToLower().Contains(kv.Key))
+                {
+                    artist = kv.Value;
+                    break;
+                }
+            }
+
+            return artist;
+        }
+
+        private string GetSingerSecondFilter(string artist)
+        {
+            var channelMapping = new Dictionary<string, string>
+            {
+                { "yoasobi", "yoasobi" },
+                { "kenshi yonezu", "kenshi yonezu" },
+                { "優里","優里"},
+                { "ZUTOMAYO","ずっと真夜中でいいのに"},
+                { "back number","back number"}
+            };
+
+
+            foreach (var kv in channelMapping)
+            {
+                if (artist.ToLower().Contains(kv.Key))
+                {
+                    artist = kv.Value;
+                    break;
+                }
+            }
+
+            return artist;
         }
     }
 }

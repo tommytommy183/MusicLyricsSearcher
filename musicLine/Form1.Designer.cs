@@ -46,6 +46,7 @@
             txtYoutubeURL = new TextBox();
             btnPreviousSong = new Button();
             btnNextSong = new Button();
+            btnShowSongList = new Button();
             contextMenuStrip1.SuspendLayout();
             SuspendLayout();
             // 
@@ -248,7 +249,7 @@
             btnPreviousSong.Text = "◀ 前一首";
             btnPreviousSong.UseVisualStyleBackColor = false;
             btnPreviousSong.Visible = false;
-
+            btnPreviousSong.Click += btnPreviousSong_Click;
             // 
             // btnNextSong
             // 
@@ -264,6 +265,23 @@
             btnNextSong.Text = "下一首 ▶";
             btnNextSong.UseVisualStyleBackColor = false;
             btnNextSong.Visible = false;
+            btnNextSong.Click += btnNextSong_Click;
+            // 
+            // btnShowSongList
+            // 
+            btnShowSongList.Anchor = AnchorStyles.Bottom;
+            btnShowSongList.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
+            btnShowSongList.BackColor = gray;
+            btnShowSongList.FlatStyle = FlatStyle.Flat;
+            btnShowSongList.Font = new Font("Microsoft JhengHei UI", 10F);
+            btnShowSongList.Location = new Point(198, 24);
+            btnShowSongList.Name = "btnShowSongList";
+            btnShowSongList.Size = new Size(120, 45);
+            btnShowSongList.TabIndex = 13;
+            btnShowSongList.Text = "查看清單";
+            btnShowSongList.UseVisualStyleBackColor = false;
+            btnShowSongList.Visible = false;
+            btnShowSongList.Click += btnShowSongList_Click;
             // 
             // Form1
             // 
@@ -272,6 +290,7 @@
             BackColor = Color.FromArgb(28, 30, 34);
             ClientSize = new Size(500, 350);
             ContextMenuStrip = contextMenuStrip1;
+            Controls.Add(btnShowSongList);
             Controls.Add(btnNextSong);
             Controls.Add(btnPreviousSong);
             Controls.Add(txtYoutubeURL);
@@ -317,5 +336,6 @@
         private TextBox txtYoutubeURL;
         private Button btnPreviousSong;
         private Button btnNextSong;
+        private Button btnShowSongList;
     }
 }
