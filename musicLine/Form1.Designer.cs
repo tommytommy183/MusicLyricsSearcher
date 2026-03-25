@@ -35,7 +35,7 @@
             lblSongTitle = new Label();
             btnPrevious = new Button();
             btnNext = new Button();
-            lblLyricLine = new Label();
+            lblLyricLine = new FuriganaLabel();
             lblLineNumber = new Label();
             btnSearch = new Button();
             btnBackToSearch = new Button();
@@ -127,18 +127,14 @@
             // 
             // lblLyricLine
             // 
+            lblLyricLine = new FuriganaLabel();
             lblLyricLine.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             lblLyricLine.BackColor = gray;
-            lblLyricLine.BorderStyle = BorderStyle.FixedSingle;
-            lblLyricLine.Font = new Font("Microsoft JhengHei UI", 18F, FontStyle.Regular, GraphicsUnit.Point, 136);
-            lblLyricLine.ForeColor = Color.FromArgb(51, 51, 51);
             lblLyricLine.Location = new Point(30, 109);
             lblLyricLine.Name = "lblLyricLine";
             lblLyricLine.Padding = new Padding(20);
             lblLyricLine.Size = new Size(458, 149);
             lblLyricLine.TabIndex = 5;
-            lblLyricLine.Text = "歌詞內容會顯示在這裡";
-            lblLyricLine.TextAlign = ContentAlignment.MiddleCenter;
             lblLyricLine.Visible = false;
             // 
             // lblLineNumber
@@ -325,7 +321,7 @@
         private Label lblSongTitle;
         private Button btnPrevious;
         private Button btnNext;
-        private Label lblLyricLine;
+        private FuriganaLabel lblLyricLine;
         private Label lblLineNumber;
         private Button btnSearch;
         private Button btnBackToSearch;
