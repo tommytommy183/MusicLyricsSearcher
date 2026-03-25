@@ -8,10 +8,12 @@ namespace musicLine.Services
     public class LyricsService
     {
         private readonly LyricsApiService _apiService;
+        private readonly WanakanaService _wanakanaService = new WanakanaService();
 
         public LyricsService()
         {
             _apiService = new LyricsApiService();
+            _wanakanaService = new WanakanaService();
         }
 
         /// <summary>

@@ -1,4 +1,5 @@
-﻿using musicLine.Models;
+﻿using MeCab;
+using musicLine.Models;
 using musicLine.Services;
 using System.Net.Http;
 using System.Runtime.InteropServices;
@@ -15,6 +16,10 @@ namespace musicLine
         private readonly LyricsService _lyricsService;
         private readonly YoutubeService _youtubeService;
         private readonly CommonService _commonService;
+        private readonly WanakanaService _wanakanaService;
+        private MeCabTagger _tagger;
+
+
         private Song? currentSong;
         private int currentLineIndex = 0;
         private System.Timers.Timer lyricTimer;
@@ -37,10 +42,12 @@ namespace musicLine
         public Form1()
         {
             InitializeComponent();
-
+            _tagger = MeCabTagger.Create();
             _lyricsService = new LyricsService();
             _youtubeService = new YoutubeService();
             _commonService = new CommonService();
+            _wanakanaService = new WanakanaService();
+            lblLyricLine.Init(_tagger, _wanakanaService.ToHiragana);
 
             InitializeUI();
             InitializeTimer();
@@ -108,7 +115,7 @@ namespace musicLine
                     this.Invoke(new Action(() =>
                     {
                         //因為這邊切回去時，還沒到line 0的部分所以不會回到第一句，要手動改
-                        lblLyricLine.Text = currentSong.SongLineTimes[0].Line;
+                        lblLyricLine.SetText(currentSong.SongLineTimes[0].Line);
                     }));
                 }
                 else
@@ -273,7 +280,7 @@ namespace musicLine
                 return;
 
 
-            lblLyricLine.Text = currentSong.SongLineTimes[currentLineIndex].Line;
+            lblLyricLine.SetText(currentSong.SongLineTimes[currentLineIndex].Line);
 
             // 顯示時間資訊（如果有的話）
             string timeInfo = "";
@@ -528,38 +535,43 @@ namespace musicLine
         private async Task PlayedPlayList()
         {
             isReplaying = false;
-            if (_playList != null && _playList.Count > 0)
+
+            if (_playList == null || currentPlayListIndex >= _playList.Count)
+                return;
+
+            var current = _playList[currentPlayListIndex];
+            currentPlayListIndex++;
+
+            var songName = _commonService.GetSongNameFilter(current.SongName);
+            var singer1 = _commonService.GetSingerFirstFilter(current.ChannnelName);
+            var singer2 = _commonService.GetSingerSecondFilter(current.ChannnelName);
+            var hiraName = _wanakanaService.ToHiragana(songName);
+            var kanaName = _wanakanaService.ToKatakana(songName);
+
+            var searchPatterns = new List<(string name, string singer)>
+    {
+        (songName, singer1),
+        (songName, singer2),
+        (hiraName, singer1),
+        (hiraName, singer2),
+        (kanaName, singer1),
+        (kanaName, singer2),
+        (songName, "")
+    };
+
+            foreach (var (name, singer) in searchPatterns)
             {
-                YoutubeModel current = _playList[currentPlayListIndex];
-                var songs = await _lyricsService.SearchSongsAsync(_commonService.GetSongNameFilter(current.SongName), _commonService.GetSingerFirstFilter(current.ChannnelName));
+                var songs = await _lyricsService.SearchSongsAsync(name, singer);
 
-                currentPlayListIndex++;
-
-                if (songs != null && songs.Count > 0)
+                if (songs?.Any() == true)
                 {
                     LoadSong(songs[0]);
-                }
-                else
-                {
-                    songs = await _lyricsService.SearchSongsAsync(_commonService.GetSongNameFilter(current.SongName), _commonService.GetSingerSecondFilter(current.ChannnelName));
-                    if (songs != null && songs.Count > 0)
-                    {
-                        LoadSong(songs[0]);
-                    }
-                    else
-                    {
-                        songs = await _lyricsService.SearchSongsAsync(_commonService.GetSongNameFilter(current.SongName), "");
-                        if (songs != null && songs.Count > 0)
-                        {
-                            LoadSong(songs[0]);
-                        }
-                        else
-                        {
-                            await PlayedPlayList();
-                        }
-                    }
+                    return;
                 }
             }
+
+            // 找不到就播下一首（但不要遞迴爆炸）
+            await PlayedPlayList();
         }
     }
 }
