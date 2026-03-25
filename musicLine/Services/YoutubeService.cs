@@ -23,6 +23,12 @@ namespace musicLine.Services
                 string title = video.Title;
                 string channel = video.Author.ChannelTitle;
 
+                //最大100筆
+                if(youtubeModels.Count > 100)
+                {
+                    break;
+                }
+
                 if (!string.IsNullOrEmpty(title) && !string.IsNullOrEmpty(channel))
                 {
                     YoutubeModel youtubeModel = new YoutubeModel()

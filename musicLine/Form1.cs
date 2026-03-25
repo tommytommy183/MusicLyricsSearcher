@@ -550,12 +550,12 @@ namespace musicLine
 
             var searchPatterns = new List<(string name, string singer)>
     {
-        (songName, singer1),
-        (songName, singer2),
         (hiraName, singer1),
         (hiraName, singer2),
         (kanaName, singer1),
         (kanaName, singer2),
+        (songName, singer1),
+        (songName, singer2),
         (songName, "")
     };
 
@@ -570,7 +570,7 @@ namespace musicLine
                 }
             }
 
-            // 找不到就播下一首（但不要遞迴爆炸）
+            // 找不到就播下一首
             await PlayedPlayList();
         }
     }
